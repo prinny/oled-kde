@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "OLED KDE contributors"
+            }
+        ],
+        "Description": "Pure-black OLED global theme, ported from oled-gnome: Breeze widget style and decoration recolored to #000000",
+        "Id": "io.local.oled.desktop",
+        "License": "MIT",
+        "Name": "OLED",
+        "Version": "1.0.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

@@ -1,68 +1,65 @@
-# OLED GNOME
+# OLED KDE
 
-Pure-black GTK/libadwaita surfaces and a matching GNOME Shell theme.
+Pure-black color scheme and Plasma style for KDE Plasma 6, with matching terminal, editor, and Firefox themes.
 
-![OLED GNOME GTK/libadwaita and Shell preview](promo/01-oled-gnome-overview.png)
+This is a port of [oled-gnome](https://github.com/drkhn1234/oled-gnome) (MIT) to KDE Plasma. The palette, the terminal ANSI colors, and the installer's backup/restore design come from that project; see [Credits and license](#credits-and-license). Like the original, this port recolors the stock styling — Breeze widget style, Breeze window decoration, and the default Plasma theme elements — and changes no layout or geometry. No system-file replacement is needed.
 
-[Download](https://github.com/drkhn1234/oled-gnome/releases/latest) · [Screenshot gallery](promo/GALLERY.md)
-
-The application theme keeps normal controls and selections, with a subtle outline around popup and right-click menus. The Shell theme uses black surfaces and inactive buttons, accent-filled enabled toggles, gray hover feedback, and lighter accent fills on hover. Top-panel buttons keep GNOME's default interaction style.
-
-These are two independent components. You can install either one or both. No system-file replacement or patched libadwaita is needed.
+The components are independent. You can install any subset: the Plasma theme alone, only a terminal theme, or everything.
 
 ## Compatibility
 
 | Component | Tested on | Other versions |
 | --- | --- | --- |
-| GNOME Shell | 51.0 on Ubuntu 26.10 | Untested; Shell selectors and resource paths can change between releases |
-| GTK 3 | 3.24.52, with Adwaita-dark | Other GTK 3 themes may render differently |
-| GTK 4 | 4.24.1 | Older releases may reject CSS variables or render some widgets differently |
-| libadwaita | Host library 1.10.0; visually checked in GNOME Text Editor 50.1 Flatpak | Individual applications and runtimes may differ |
+| KDE Plasma (color scheme, Plasma style, Global Theme) | Plasma 6.7.5, Breeze style/decoration | Untested; Plasma 5 is not supported |
+| Konsole | 26.08.1 | Color schemes are plain config files; should work on older Konsole |
+| Ghostty | 1.3.1 | Theme format is stable; older releases untested |
+| Firefox (`userChrome.css`/`userContent.css`) | 158.0 | Untested; CSS variable names can change between releases |
+| Neovim | 0.12.5 | Uses only `nvim_set_hl`; 0.8+ expected to work |
+| Helix, btop | Not run (file formats validated only) | Untested |
+| Kate/KWrite (`OLED.theme`) | KSyntaxHighlighting as shipped with Plasma 6.7.5 | Other versions untested |
 
-## Quick start: both themes
+## Requirements
 
-1. Install Python 3 and GNOME Tweaks using your distribution's package manager. The helper needs only Python's standard library.
-2. Install and enable the official [User Themes extension](https://extensions.gnome.org/extension/19/user-themes/), choosing the version for your Shell release. It lets GNOME Shell load a theme from your user directory. If you just installed the extension and GNOME does not see it yet, log out and back in.
-3. Download the theme ZIP or tar.gz from the [latest release](https://github.com/drkhn1234/oled-gnome/releases/latest), extract it, and open a terminal in the extracted `oled-gnome` folder. You can check your Shell version with `gnome-shell --version`.
-4. Review the files and preview the changes:
+- **Python 3** (standard library only), for `theme.py`, the installer. No other tools, no network access, and no `sudo` are needed.
+- **plasma** component: KDE Plasma 6 with the stock Breeze widget style and window decoration. The Kate/KWrite editor theme is installed with this component.
+- **konsole**, **ghostty**, **editors** (Neovim, Helix, btop), and **firefox** components: only the application named by each component. Installing a component for an application you don't have just leaves an unused theme file, which uninstall removes again. The `all` component skips Firefox (with a note) when no Firefox profile is found; `--component firefox` reports an error instead.
+- Firefox web-page theming additionally needs the optional **Dark Reader** add-on, installed manually as described under [Firefox](#firefox). The installer downloads nothing.
+
+## Quick start: all components
+
+Clone or download this repository, extract it if needed, and open a terminal in the `oled-kde` folder. Then:
+
+1. Preview the changes:
 
 ```sh
 python3 theme.py install --dry-run
 ```
 
-5. Install and activate:
-
-```sh
-python3 theme.py install --activate
-```
-
-Run as your regular desktop user, **without sudo**, inside your GNOME session. Activation selects Adwaita-dark for GTK, prefers dark appearance, and selects the OLED-GNOME Shell theme. It does not change your system accent preference or install/enable extensions.
-
-Fully close and reopen GTK applications, including any app processes left running in the background. The Shell theme normally changes immediately. If it does not, log out and back in after saving your work.
-
-The helper backs up the paths it replaces and records previous settings before activation. It refuses a second install until you uninstall the first one, so backups are not silently stacked or replaced.
-
-## Install just one component
-
-GTK/libadwaita only, without a Shell extension:
-
-```sh
-python3 theme.py install --component gtk --activate
-```
-
-GNOME Shell only, with User Themes already enabled:
-
-```sh
-python3 theme.py install --component shell --activate
-```
-
-To copy files without changing desktop settings, omit `--activate`:
+2. Install:
 
 ```sh
 python3 theme.py install
 ```
 
-The GTK CSS takes effect when apps next start even without activation. With this option, choose dark appearance and Adwaita-dark yourself, and select **OLED-GNOME** under **Tweaks → Appearance → Shell**. Manual settings changes are not tracked for automatic restoration.
+Run as your regular desktop user, **without sudo**. The helper backs up the paths it replaces and writes an install record before changing anything. It refuses a second install until you uninstall the first one, so backups are not silently stacked or replaced.
+
+3. Apply the themes. The installer only copies files and prints these steps:
+
+```sh
+plasma-apply-lookandfeel -a io.local.oled.desktop
+```
+
+That selects the OLED Global Theme (color scheme + Plasma style + Breeze) and keeps your desktop layout — layout is only reset if you pass `--resetLayout`, which you should not. Selecting **OLED** under **System Settings → Global Theme** does the same thing. To apply only the application colors instead, run `plasma-apply-colorscheme OLED`. Then select the theme by name in each application: the **OLED** profile or color scheme in Konsole, `theme = oled` in Ghostty's config, `colorscheme oled` in Neovim, `theme = "oled"` in Helix, the `oled` color theme in btop's options, and **OLED** under **Settings → Editor → Fonts & Colors** in Kate/KWrite. Firefox (when a profile was found) needs a restart plus the preferences under [Firefox](#firefox).
+
+Icons, cursors, sounds, splash screen, and wallpaper are not part of this package and are left exactly as they are.
+
+## Install just one component
+
+```sh
+python3 theme.py install --component plasma
+```
+
+Components: `plasma`, `konsole`, `ghostty`, `editors`, `firefox`, and `all` (the default). The `editors` component installs the Neovim, Helix, and btop themes together; the Kate/KWrite theme is part of `plasma`.
 
 ## What gets installed
 
@@ -70,16 +67,19 @@ The default paths below follow the XDG directory variables if you have customize
 
 | Path | Purpose |
 | --- | --- |
-| `~/.config/gtk-3.0/gtk.css` | Replaced with one import of the packaged GTK 3 override |
-| `~/.config/gtk-3.0/oled-gnome/` | GTK 3 palette and surface rules |
-| `~/.config/gtk-4.0/gtk.css` | Replaced with one import of the packaged GTK 4 override |
-| `~/.config/gtk-4.0/oled-gnome/` | GTK 4/libadwaita palette and surface rules |
-| `~/.local/share/themes/OLED-GNOME/` | Shell stylesheet importing GNOME's built-in dark theme |
-| `~/.local/state/oled-gnome/` | Install record, original files, and recovery copies |
+| `~/.local/share/color-schemes/OLED.colors` | Qt Widgets/Kirigami application colors, window decoration colors |
+| `~/.local/share/plasma/desktoptheme/oled/` | Plasma style colors (panel, menus, notifications); graphics come from the default Plasma theme |
+| `~/.local/share/plasma/look-and-feel/io.local.oled.desktop/` | Global Theme selecting the two packages above plus Breeze |
+| `~/.local/share/org.kde.syntax-highlighting/themes/OLED.theme` | Kate/KWrite editor text colors |
+| `~/.local/share/konsole/OLED.colorscheme`, `OLED.profile` | Konsole colors and a ready-made profile |
+| `~/.config/ghostty/themes/oled` | Ghostty theme (`theme = oled`) |
+| `~/.config/nvim/colors/oled.lua` | Neovim colorscheme |
+| `~/.config/helix/themes/oled.toml` | Helix theme |
+| `~/.config/btop/themes/oled.theme` | btop theme |
+| `<Firefox profile>/chrome/userChrome.css`, `userContent.css` | Firefox chrome and `about:` pages; the profile is found via `profiles.ini` |
+| `~/.local/state/oled-kde/` | Install record, original files, and recovery copies |
 
-Your existing `gtk.css` files are **backed up and replaced**, rather than merged, to avoid competing overrides. Other files in the GTK directories are left alone. Existing symlinks at the replaced paths are saved and restored as symlinks; the installer does not write through those links. Existing contents of the package's own `oled-gnome/` and `OLED-GNOME/` paths are also backed up before replacement.
-
-GTK loads the per-user CSS paths described in the [GTK 3](https://docs.gtk.org/gtk3/class.CssProvider.html) and [GTK 4](https://docs.gtk.org/gtk4/class.CssProvider.html) documentation. That is how the application overrides work; there is no custom theme engine to install.
+Files already at these paths are **backed up and replaced** — most importantly, an existing Firefox `userChrome.css` is saved before it is overwritten, not merged. The two Plasma package directories are replaced as a whole, so any extra files inside them are backed up along with them and restored on uninstall. Files elsewhere are left alone. Existing symlinks at the replaced paths are saved and restored as symlinks; the installer does not write through those links.
 
 ## Remove it and restore your setup
 
@@ -90,42 +90,75 @@ python3 theme.py uninstall --dry-run
 python3 theme.py uninstall
 ```
 
-Use the same desktop user and XDG directory variables as during installation. The helper restores the backed-up files, removes paths that it newly created, and restores settings changed by `--activate` if their values have not since been changed again. Newer setting choices are left alone.
+Use the same desktop user and XDG directory variables as during installation. The helper restores the backed-up files and removes paths that it newly created. The currently installed files — including any edits you made — are saved under `~/.local/state/oled-kde/recovered/` before restoration. Original backups are retained too.
 
-The currently installed files—including any edits you made—are saved under `~/.local/state/oled-gnome/recovered/` before restoration. Original backups are retained too. Reopen GTK apps afterward. If you selected the Shell theme manually, select your previous theme in Tweaks.
+Uninstall does not change desktop settings. If OLED is still selected as your Global Theme or color scheme, choose another one in System Settings afterwards, and deselect the theme in any terminal or editor where you enabled it. Restart Firefox so it drops the removed stylesheets (and remove the preferences below from `about:config` if you no longer want them).
 
-Do not delete the state directory before uninstalling: it contains your originals. If settings could not be restored because an extension or session is unavailable, the helper prints a warning and saves their previous values in `last-uninstall.json`. Restore them from a working desktop session.
+Do not delete the state directory before uninstalling: it contains your originals. If an install is interrupted, run uninstall to restore the originals before trying again.
 
 ## Colors and customization
 
-- **Shell accent:** follows GNOME's accent setting. The red shown in the author's setup is a system preference, not a hardcoded red theme.
-- **GTK 4/libadwaita accent:** the override leaves accent and selection colors to the application's base stylesheet. Libadwaita 1.6 and later follow the system accent, and GTK 4.24 exposes the desktop accent to plain GTK apps. Choose your accent in **Settings → Appearance**; applications with their own accent styling can still differ. Older GTK 4 or libadwaita versions may keep their default accent.
-- **GTK 3 accent:** GTK 3 does not have native GNOME accent integration. This component retains a blue `#007acc` fallback. To customize it, edit the three `@define-color accent_*` definitions in `~/.config/gtk-3.0/oled-gnome/colors.css` and restart the app.
-- **Shell hover:** inactive buttons use `#1a1a1a`; enabled controls lighten the current accent by 8%.
-- **Borders:** GTK menu outlines use 7% white; the explicit Shell surface/card borders use `#242424`.
+| Role | Value | Source in oled-gnome |
+| --- | --- | --- |
+| Backgrounds | `#000000` | every `*_bg_color`, Shell surfaces |
+| Foreground | `#FFFFFF` | every `*_fg_color` |
+| Button/elevated | `#161616` | Shell unchecked toggles |
+| Borders/pressed | `#242424` | Shell border color |
+| Hover | `#1A1A1A` | Shell inactive hover |
+| Alt rows | `#121212` | GTK 4 surfaces |
+| Inactive foreground | `#999999` | GTK 3 insensitive |
+| Negative | `#F48771` | destructive/error |
+| Terminal ANSI | 16 colors | `palettes/ptyxis/OLED.palette`, verbatim |
 
-System accent behavior is described in the [libadwaita appearance guide](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1.10/styles-and-appearance.html#accent-color) and the [GTK 4.24 accent setting](https://docs.gtk.org/gtk4/property.Settings.gtk-accent-color.html).
+Where the GNOME source has no value:
 
-The palette uses background/foreground pairs described in the [libadwaita CSS variables documentation](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/css-variables.html). Restart apps after editing their CSS. To reload Shell edits, temporarily choose another Shell theme in Tweaks and then choose OLED-GNOME again.
+- **Accent** — the source follows the system accent dynamically. In a Plasma session, your accent from **System Settings → Colors & Themes** likewise overrides selection and decoration colors. The files carry `#22D3EE` as a static fallback for places that need a fixed value (non-Plasma Qt, Firefox, editors).
+- **Positive/neutral** — `#8AE234` / `#FCE94F` (Ptyxis bright green/yellow), used with conventional semantics.
+- **Visited** — `#AD7FA8` (Ptyxis bright magenta).
+- **Buttons** — `#161616`, not `#000000`. Breeze derives button frames from contrast, so black-on-black would erase their outlines.
 
-## Ptyxis terminal
+All editor themes share one syntax mapping: keywords violet, strings green, types blue, numbers yellow, comments gray, errors `#F48771`.
 
-Ptyxis draws its terminal and window colors from a separate palette. To use black backgrounds, import the included palette:
+To change any color, edit the palette in [`generate.py`](generate.py), run `python3 generate.py`, and reinstall (uninstall first). Restart applications after reinstalling.
+
+## Firefox
+
+The `firefox` component copies two stylesheets into your default profile, found under `~/.config/mozilla/firefox` (or `$XDG_CONFIG_HOME`) or `~/.mozilla/firefox`. Snap and Flatpak builds keep profiles elsewhere and are not detected; copy the two stylesheets into that profile's `chrome/` folder manually. The stylesheets are: `chrome/userChrome.css` (tabs, toolbars, urlbar, panels, sidebar) and `chrome/userContent.css` (`about:` pages, including the new tab page). Firefox only loads them after you set these preferences in `about:config` and restart:
+
+| Preference | Value |
+| --- | --- |
+| `toolkit.legacyUserProfileCustomizations.stylesheets` | `true` |
+| `browser.theme.toolbar-theme` | `0` (dark) |
+| `browser.theme.content-theme` | `0` (dark) |
+| `devtools.theme` | `dark` |
+
+Web pages keep their own colors. For pure-black web pages, install the [Dark Reader](https://addons.mozilla.org/firefox/addon/darkreader/) add-on from addons.mozilla.org, then import the included settings: **Dark Reader → Settings → Manage settings → Import** and choose [`firefox/darkreader-oled-settings.json`](firefox/darkreader-oled-settings.json). That enables its dynamic engine on all sites with background `#000000`, text `#ffffff`, and selection/scrollbar `#242424`. Dark Reader's own toggles undo this per site or globally (`Alt+Shift+A` / `Alt+Shift+D` by default).
+
+## Known limits
+
+- **GTK 3/4 and libadwaita applications** are not covered by this package. Install [oled-gnome](https://github.com/drkhn1234/oled-gnome) alongside it if you want them black too; its per-user GTK CSS also applies inside a Plasma session.
+- **Qt Flatpaks** use their runtime's style and keep their built-in dark look, not `#000000`.
+- **Login (SDDM) and system-wide theming** are out of scope for a per-user package. The splash screen keeps whatever your previous setup used.
+- **Wallpaper** is not changed. Set a solid black wallpaper in Plasma if you want a true-black desktop.
+
+## Development
+
+[`generate.py`](generate.py) is the single source of truth for colors. It regenerates every artifact it owns (the color schemes, Konsole/Ghostty files, editor themes, Firefox CSS, and the Dark Reader settings) using only the Python standard library, with no files read from outside the repository:
 
 ```sh
-ptyxis --import-palette palettes/ptyxis/OLED.palette
+python3 generate.py
 ```
 
-Select **OLED** under **Palette** in Ptyxis Preferences, or in the profile editor for a specific profile. It keeps colored terminal output and follows the system accent. The theme installer leaves terminal palettes alone; to undo this step, select your previous palette and remove `OLED.palette` from `~/.local/share/org.gnome.Ptyxis/palettes/` (or the equivalent path under `$XDG_DATA_HOME`).
+The generated artifacts are committed, so installers don't need the generator. Package metadata (`metadata.json`, `plasmarc`, `contents/defaults`) and the Global Theme preview images are not generated; they are maintained by hand.
 
-## Troubleshooting
+Run the tests (they use a temporary home directory and never touch real desktop settings):
 
-**User Themes is missing or activation fails.** Install and enable the official extension for your GNOME version. The helper checks activation requirements before changing files. Alternatively, install without `--activate` and use Tweaks after the extension becomes available.
+```sh
+python3 -m unittest discover -s tests
+```
 
-**A GTK app still looks unchanged.** Quit every process belonging to the app and reopen it. Check whether it is a Flatpak, Snap, Qt, Electron, or custom-drawn application. A different theme manager may also be rewriting `gtk.css`.
+## Credits and license
 
-**An app has poor contrast or a broken widget.** Uninstall the GTK override and retry. The global override cannot account for every application's private CSS.
+OLED KDE is a port of [oled-gnome](https://github.com/drkhn1234/oled-gnome) by its contributors. From that project come the pure-black palette, the Ptyxis ANSI colors (used verbatim for Konsole and Ghostty), and the structure of [`theme.py`](theme.py) (per-user install with backups, an install record, `--dry-run`, and component selection). The editor themes' highlight layouts were adapted from the NoxForge Obsidian themes.
 
-**The Shell theme fails on another GNOME release.** Select the default Shell theme in Tweaks. This release was tested on Shell 51; other GNOME releases are untested.
-
-**Install was interrupted.** The helper writes an install record before replacing files. If a record remains, run uninstall to restore the originals before trying again. Keep the backup directory intact.
+Everything is distributed under the MIT License; see [`LICENSE`](LICENSE), which retains the upstream copyright notices.

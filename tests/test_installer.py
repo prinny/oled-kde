@@ -11,14 +11,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-SPEC = importlib.util.spec_from_file_location("oled_theme", Path(__file__).resolve().parents[1] / "theme.py")
+SPEC = importlib.util.spec_from_file_location("oled_kde_theme", Path(__file__).resolve().parents[1] / "theme.py")
 theme = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(theme)
 
 
 class InstallerTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="oled test ")
+        self.temp = tempfile.TemporaryDirectory(prefix="oled kde test ")
         self.addCleanup(self.temp.cleanup)
         self.home = Path(self.temp.name)
         self.environment = patch.dict(os.environ, {
@@ -32,197 +32,126 @@ class InstallerTests(unittest.TestCase):
         self.output = redirect_stdout(io.StringIO())
         self.output.__enter__()
         self.addCleanup(self.output.__exit__, None, None, None)
+        self.make_firefox_profile()
 
-    def install(self, component="all", activate=False, dry=False):
-        theme.install(argparse.Namespace(component=component, activate=activate, dry_run=dry))
+    def make_firefox_profile(self):
+        base = theme.locations()["config"] / "mozilla/firefox"
+        (base / "abc123.default-release").mkdir(parents=True)
+        (base / "profiles.ini").write_text(
+            "[Install4F96D1932A9F858E]\nDefault=abc123.default-release\nLocked=1\n\n"
+            "[Profile0]\nName=default-release\nIsRelative=1\n"
+            "Path=abc123.default-release\nDefault=1\n", encoding="utf-8")
+        return base / "abc123.default-release"
+
+    def install(self, component="all", dry=False):
+        theme.install(argparse.Namespace(component=component, dry_run=dry))
 
     def uninstall(self, dry=False):
         theme.uninstall(argparse.Namespace(dry_run=dry))
-
-    def gtk(self, version="4.0"):
-        return theme.locations()["config"] / ("gtk-" + version)
 
     def write(self, path, text):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
-    def fake_settings(self):
-        values = {
-            (theme.INTERFACE, "gtk-theme"): "'My previous theme'",
-            (theme.INTERFACE, "color-scheme"): "'default'",
-            (theme.USER_THEME, "name"): "'My previous shell'",
-        }
-
-        def command(args):
-            if args[0] == "gnome-extensions":
-                return theme.UUID
-            operation = args[1]
-            if operation == "list-schemas":
-                return theme.INTERFACE + "\n" + theme.USER_THEME
-            if operation == "writable":
-                return "true"
-            if operation == "get":
-                return values[(args[2], args[3])]
-            if operation == "set":
-                values[(args[2], args[3])] = args[4]
-                return ""
-            raise AssertionError(args)
-
-        return values, command
+    def tree(self):
+        return {str(p.relative_to(self.home)) for p in self.home.rglob("*")}
 
     def test_fresh_install_and_restore(self):
-        targets = [p for p, _, _ in theme.plan("all")]
+        targets = [p for p, _ in theme.plan("all")]
         self.install()
         self.assertTrue(all(theme.exists(p) for p in targets))
-        self.assertIn('oled-gnome/theme.css', (self.gtk() / "gtk.css").read_text())
-        self.assertTrue((self.gtk() / "oled-gnome/colors.css").is_file())
+        colors = theme.locations()["data"] / "color-schemes/OLED.colors"
+        self.assertIn("ColorScheme=OLED", colors.read_text())
+        profile = theme.firefox_profile()
+        self.assertIn("#000000", (profile / "chrome/userChrome.css").read_text())
         self.uninstall()
         self.assertTrue(all(not theme.exists(p) for p in targets))
         self.assertFalse((theme.locations()["state"] / "current.json").exists())
 
-    def test_existing_css_and_directories_restored(self):
-        for target, source, _ in theme.plan("all"):
-            self.write(target / "old.txt" if source else target, "original contents")
-        self.write(self.gtk() / "unrelated.css", "leave this alone")
+    def test_existing_files_and_directories_restored(self):
+        for target, source in theme.plan("all"):
+            self.write(target / "old.txt" if source.is_dir() else target, "original contents")
+        unrelated = theme.locations()["data"] / "konsole/MyProfile.profile"
+        self.write(unrelated, "leave this alone")
         self.install()
         self.uninstall()
-        for target, source, _ in theme.plan("all"):
-            self.assertEqual((target / "old.txt" if source else target).read_text(), "original contents")
-        self.assertEqual((self.gtk() / "unrelated.css").read_text(), "leave this alone")
+        for target, source in theme.plan("all"):
+            self.assertEqual((target / "old.txt" if source.is_dir() else target).read_text(),
+                             "original contents")
+        self.assertEqual(unrelated.read_text(), "leave this alone")
 
-    def test_symlinks_restored_without_changing_external_targets(self):
+    def test_symlink_restored_without_changing_external_target(self):
         external = self.home / "external.css"
         self.write(external, "external original")
-        self.gtk().mkdir(parents=True)
-        css = self.gtk() / "gtk.css"
-        css.symlink_to(external)
-        external_dir = self.home / "external assets"
-        self.write(external_dir / "original.txt", "directory original")
-        assets = self.gtk() / "oled-gnome"
-        assets.symlink_to(external_dir, target_is_directory=True)
-        self.install("gtk")
-        self.assertFalse(css.is_symlink())
+        chrome = theme.firefox_profile() / "chrome/userChrome.css"
+        chrome.parent.mkdir(parents=True)
+        chrome.symlink_to(external)
+        self.install("firefox")
+        self.assertFalse(chrome.is_symlink())
         self.assertEqual(external.read_text(), "external original")
-        self.assertEqual((external_dir / "original.txt").read_text(), "directory original")
         self.uninstall()
-        self.assertTrue(css.is_symlink())
-        self.assertTrue(assets.is_symlink())
-        self.assertEqual(css.readlink(), external)
-        self.assertEqual(assets.readlink(), external_dir)
-
-    def test_dangling_symlink_restored(self):
-        css = self.gtk() / "gtk.css"
-        css.parent.mkdir(parents=True)
-        css.symlink_to("missing.css")
-        self.install("gtk")
-        self.uninstall()
-        self.assertTrue(css.is_symlink())
-        self.assertEqual(css.readlink(), Path("missing.css"))
+        self.assertTrue(chrome.is_symlink())
+        self.assertEqual(chrome.readlink(), external)
 
     def test_dry_run_creates_nothing(self):
+        before = self.tree()
         self.install(dry=True)
-        self.assertEqual(list(self.home.iterdir()), [])
+        self.assertEqual(self.tree(), before)
 
     def test_component_selection(self):
-        self.install("shell")
-        self.assertFalse(theme.locations()["config"].exists())
-        self.assertTrue((theme.locations()["data"] / "themes" / theme.THEME).exists())
+        self.install("ghostty")
+        self.assertTrue((theme.locations()["config"] / "ghostty/themes/oled").exists())
+        self.assertFalse((theme.locations()["data"] / "konsole").exists())
+        self.assertFalse((theme.locations()["data"] / "color-schemes").exists())
         self.uninstall()
-        self.install("gtk")
-        self.assertFalse((theme.locations()["data"] / "themes" / theme.THEME).exists())
+        self.install("konsole")
+        self.assertFalse((theme.locations()["config"] / "ghostty/themes/oled").exists())
+        self.assertTrue((theme.locations()["data"] / "konsole/OLED.profile").exists())
 
     def test_second_install_refused(self):
-        self.install()
-        before = (self.gtk() / "gtk.css").read_bytes()
+        self.install("plasma")
+        colors = theme.locations()["data"] / "color-schemes/OLED.colors"
+        before = colors.read_bytes()
         with self.assertRaisesRegex(RuntimeError, "already recorded"):
-            self.install()
-        self.assertEqual((self.gtk() / "gtk.css").read_bytes(), before)
+            self.install("plasma")
+        self.assertEqual(colors.read_bytes(), before)
 
     def test_edits_saved_during_uninstall(self):
-        css = self.gtk() / "gtk.css"
-        self.write(css, "previous CSS")
-        self.install("gtk")
-        css.write_text("my new edits")
+        chrome = theme.firefox_profile() / "chrome/userChrome.css"
+        self.write(chrome, "previous CSS")
+        self.install("firefox")
+        chrome.write_text("my new edits")
         self.uninstall()
-        self.assertEqual(css.read_text(), "previous CSS")
-        recovered = list((theme.locations()["state"] / "recovered").rglob("gtk.css"))
+        self.assertEqual(chrome.read_text(), "previous CSS")
+        recovered = list((theme.locations()["state"] / "recovered").rglob("userChrome.css"))
         self.assertTrue(any(p.read_text() == "my new edits" for p in recovered))
 
     def test_uninstall_dry_run_keeps_installation(self):
-        self.install()
+        self.install("konsole")
         self.uninstall(dry=True)
-        self.assertTrue((self.gtk() / "gtk.css").exists())
+        self.assertTrue((theme.locations()["data"] / "konsole/OLED.colorscheme").exists())
         self.assertTrue((theme.locations()["state"] / "current.json").exists())
 
-    def test_install_failure_restores_existing_css(self):
-        css = self.gtk() / "gtk.css"
-        self.write(css, "previous CSS")
+    def test_install_failure_rolls_back(self):
+        colors = theme.locations()["data"] / "color-schemes/OLED.colors"
+        self.write(colors, "previous scheme")
         real_copy = theme.copy
 
         def failing_copy(source, target):
-            if source == theme.SOURCE / "gtk-4.0":
+            if source == theme.SOURCE / "konsole/OLED.profile":
                 raise OSError("simulated disk failure")
             return real_copy(source, target)
 
         with patch.object(theme, "copy", side_effect=failing_copy):
             with self.assertRaisesRegex(OSError, "simulated disk failure"):
-                self.install("gtk")
-        self.assertEqual(css.read_text(), "previous CSS")
-        self.assertFalse((self.gtk("3.0") / "gtk.css").exists())
-        self.assertFalse((theme.locations()["state"] / "current.json").exists())
-
-    def test_activation_and_previous_settings_restored(self):
-        values, command = self.fake_settings()
-        original = dict(values)
-        with patch.object(theme, "run", side_effect=command), patch.object(theme.shutil, "which", return_value="/fake/bin/tool"):
-            self.install(activate=True)
-            self.assertEqual(values[(theme.USER_THEME, "name")], "'OLED-GNOME'")
-            self.assertEqual(values[(theme.INTERFACE, "color-scheme")], "'prefer-dark'")
-            self.uninstall()
-        self.assertEqual(values, original)
-
-    def test_newer_setting_choice_preserved(self):
-        values, command = self.fake_settings()
-        with patch.object(theme, "run", side_effect=command), patch.object(theme.shutil, "which", return_value="/fake/bin/tool"):
-            self.install(activate=True)
-            values[(theme.USER_THEME, "name")] = "'Chosen afterward'"
-            self.uninstall()
-        self.assertEqual(values[(theme.USER_THEME, "name")], "'Chosen afterward'")
-        self.assertEqual(values[(theme.INTERFACE, "gtk-theme")], "'My previous theme'")
-
-    def test_missing_extension_fails_before_file_changes(self):
-        values, command = self.fake_settings()
-
-        def without_extension(args):
-            return "" if args[0] == "gnome-extensions" else command(args)
-
-        with patch.object(theme, "run", side_effect=without_extension), patch.object(theme.shutil, "which", return_value="/fake/bin/tool"):
-            with self.assertRaisesRegex(RuntimeError, "Enable.*User Themes"):
-                self.install(activate=True)
-        self.assertEqual(list(self.home.iterdir()), [])
-
-    def test_activation_failure_rolls_back_files_and_settings(self):
-        values, command = self.fake_settings()
-        original = dict(values)
-        css = self.gtk() / "gtk.css"
-        self.write(css, "previous CSS")
-
-        def failing_activation(args):
-            if args[0] == "gsettings" and args[1] == "set" and args[2] == theme.USER_THEME and args[4] == "'OLED-GNOME'":
-                raise RuntimeError("simulated activation failure")
-            return command(args)
-
-        with patch.object(theme, "run", side_effect=failing_activation), patch.object(theme.shutil, "which", return_value="/fake/bin/tool"):
-            with self.assertRaisesRegex(RuntimeError, "simulated activation failure"):
-                self.install(activate=True)
-        self.assertEqual(values, original)
-        self.assertEqual(css.read_text(), "previous CSS")
+                self.install("all")
+        self.assertEqual(colors.read_text(), "previous scheme")
         self.assertFalse((theme.locations()["state"] / "current.json").exists())
 
     def test_missing_backup_refuses_uninstall_before_removal(self):
-        css = self.gtk() / "gtk.css"
-        self.write(css, "previous CSS")
-        self.install("gtk")
+        colors = theme.locations()["data"] / "color-schemes/OLED.colors"
+        self.write(colors, "previous scheme")
+        self.install("plasma")
         manifest = theme.locations()["state"] / "current.json"
         state = json.loads(manifest.read_text())
         for record in state["files"]:
@@ -230,7 +159,50 @@ class InstallerTests(unittest.TestCase):
                 theme.remove(Path(record["backup"]))
         with self.assertRaisesRegex(RuntimeError, "Missing backup"):
             self.uninstall()
-        self.assertIn("oled-gnome/theme.css", css.read_text())
+        self.assertIn("ColorScheme=OLED", colors.read_text())
+
+    def test_missing_firefox_profile_fails_before_file_changes(self):
+        theme.remove(theme.locations()["config"] / "mozilla")
+        before = self.tree()
+        with self.assertRaisesRegex(RuntimeError, "No Firefox profile"):
+            self.install("firefox")
+        self.assertEqual(self.tree(), before)
+        self.install("plasma")  # Other components do not need Firefox.
+
+    def test_all_skips_missing_firefox_and_still_uninstalls(self):
+        theme.remove(theme.locations()["config"] / "mozilla")
+        self.install("all")
+        self.assertTrue((theme.locations()["data"] / "konsole/OLED.profile").exists())
+        self.make_firefox_profile()  # A profile appearing later must not block uninstall.
+        self.uninstall()
+        self.assertFalse((theme.locations()["data"] / "konsole/OLED.profile").exists())
+
+    def test_uninstall_after_default_profile_changes(self):
+        first = theme.firefox_profile() / "chrome/userChrome.css"
+        self.install("firefox")
+        self.assertTrue(first.exists())
+        base = theme.locations()["config"] / "mozilla/firefox"
+        (base / "xyz.default-release").mkdir()
+        (base / "profiles.ini").write_text(
+            "[Profile0]\nName=new default\nIsRelative=1\nPath=xyz.default-release\nDefault=1\n",
+            encoding="utf-8")
+        self.uninstall()
+        self.assertFalse(first.exists())
+
+    def test_malformed_profiles_ini_counts_as_no_profile(self):
+        base = theme.locations()["config"] / "mozilla/firefox"
+        (base / "profiles.ini").write_text("this is not an ini file [[\n", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "No Firefox profile"):
+            self.install("firefox")
+        self.install("all")  # Skips Firefox instead of crashing.
+
+    def test_firefox_profile_from_profile_section(self):
+        base = theme.locations()["config"] / "mozilla/firefox"
+        (base / "profiles.ini").write_text(
+            "[Profile1]\nName=other\nIsRelative=1\nPath=other.default\n\n"
+            "[Profile0]\nName=main\nIsRelative=1\nPath=abc123.default-release\nDefault=1\n",
+            encoding="utf-8")
+        self.assertEqual(theme.firefox_profile(), base / "abc123.default-release")
 
 
 if __name__ == "__main__":

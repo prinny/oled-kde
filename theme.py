@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
-"""Install and restore OLED GNOME using only the Python standard library."""
+"""Install and restore OLED KDE using only the Python standard library.
+
+Installer design (backups, install record, dry run, component
+selection) follows oled-gnome's theme.py. Unlike that helper, this
+one only copies files: selecting the theme afterwards is one command
+(printed on install) and needs no settings backup.
+"""
 
 import argparse
+import configparser
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import tempfile
 
-THEME = "OLED-GNOME"
-UUID = "user-theme@gnome-shell-extensions.gcampax.github.com"
-INTERFACE = "org.gnome.desktop.interface"
-USER_THEME = "org.gnome.shell.extensions.user-theme"
-SOURCE = Path(__file__).resolve().parent / "themes"
+SOURCE = Path(__file__).resolve().parent
+LOOKANDFEEL = "io.local.oled.desktop"
+COMPONENTS = ("plasma", "konsole", "ghostty", "editors", "firefox")
 
 
 def locations():
@@ -23,7 +27,7 @@ def locations():
     return {
         "config": Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config"),
         "data": Path(os.environ.get("XDG_DATA_HOME") or home / ".local/share"),
-        "state": Path(os.environ.get("XDG_STATE_HOME") or home / ".local/state") / "oled-gnome",
+        "state": Path(os.environ.get("XDG_STATE_HOME") or home / ".local/state") / "oled-kde",
     }
 
 
@@ -54,61 +58,73 @@ def write_json(path, data):
     temporary.replace(path)
 
 
-def settings_command(schema):
-    if not shutil.which("gsettings"):
-        raise RuntimeError("gsettings is required for --activate. Install without --activate to copy files only.")
-    command = ["gsettings"]
-    if schema == USER_THEME:
-        search = [locations()["data"], Path.home() / ".local/share"]
-        search += [Path(p) for p in os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":") if p]
-        for directory in search:
-            schema_dir = directory / "gnome-shell/extensions" / UUID / "schemas"
-            if (schema_dir / "gschemas.compiled").is_file():
-                command += ["--schemadir", str(schema_dir)]
-                break
-    schemas = run(command + ["list-schemas"]).splitlines()
-    if schema not in schemas:
-        raise RuntimeError(f"Missing settings schema: {schema}. For Shell activation, install the User Themes extension first.")
-    return command
-
-
-def run(command):
-    result = subprocess.run(command, text=True, capture_output=True)
-    if result.returncode:
-        raise RuntimeError(result.stderr.strip() or f"Command failed: {command[0]}")
-    return result.stdout.strip()
-
-
-def activation_plan(component):
-    changes = []
-    if component in ("gtk", "all"):
-        command = settings_command(INTERFACE)
-        for key, value in [("gtk-theme", "'Adwaita-dark'"), ("color-scheme", "'prefer-dark'")]:
-            old = run(command + ["get", INTERFACE, key])
-            if run(command + ["writable", INTERFACE, key]) != "true":
-                raise RuntimeError(f"Setting is locked: {INTERFACE} {key}")
-            changes.append({"schema": INTERFACE, "key": key, "before": old, "after": value})
-    if component in ("shell", "all"):
-        if not shutil.which("gnome-extensions") or UUID not in run(["gnome-extensions", "list", "--enabled"]).splitlines():
-            raise RuntimeError("Enable the GNOME Shell User Themes extension before using --activate, or install without --activate.")
-        command = settings_command(USER_THEME)
-        old = run(command + ["get", USER_THEME, "name"])
-        if run(command + ["writable", USER_THEME, "name"]) != "true":
-            raise RuntimeError("The Shell theme setting is locked.")
-        changes.append({"schema": USER_THEME, "key": "name", "before": old, "after": f"'{THEME}'"})
-    return changes
+def firefox_profile():
+    """Default Firefox profile directory, from profiles.ini."""
+    paths = locations()
+    for base in (paths["config"] / "mozilla/firefox", Path.home() / ".mozilla/firefox"):
+        ini = base / "profiles.ini"
+        if not ini.is_file():
+            continue
+        parser = configparser.ConfigParser(interpolation=None)
+        try:
+            parser.read(ini, encoding="utf-8")
+        except (configparser.Error, UnicodeDecodeError):
+            continue  # Treat an unreadable profiles.ini as no profile there.
+        install_default, profiles = None, []
+        for section in parser.sections():
+            if section.startswith("Install") and parser.has_option(section, "Default"):
+                install_default = parser.get(section, "Default")
+            elif section.startswith("Profile") and parser.has_option(section, "Path"):
+                profiles.append((parser.get(section, "Default", fallback="0") == "1",
+                                 parser.get(section, "IsRelative", fallback="1") == "1",
+                                 parser.get(section, "Path")))
+        if install_default:
+            return base / install_default
+        for is_default, is_relative, raw in sorted(profiles, reverse=True):
+            return base / raw if is_relative else Path(raw)
+    raise RuntimeError("No Firefox profile found (profiles.ini). Start Firefox once, "
+                       "or install without the firefox component.")
 
 
 def plan(component):
+    """(target, source) pairs for a component ("all" means every component)."""
     paths = locations()
+    data, config = paths["data"], paths["config"]
     targets = []
-    if component in ("gtk", "all"):
-        for version in ("3.0", "4.0"):
-            gtk = paths["config"] / f"gtk-{version}"
-            targets += [(gtk / "oled-gnome", SOURCE / f"gtk-{version}", None),
-                        (gtk / "gtk.css", None, '@import url("oled-gnome/theme.css");\n')]
-    if component in ("shell", "all"):
-        targets.append((paths["data"] / "themes" / THEME, SOURCE / THEME, None))
+    if component in ("plasma", "all"):
+        targets += [
+            (data / "color-schemes/OLED.colors", SOURCE / "color-schemes/OLED.colors"),
+            (data / "plasma/desktoptheme/oled", SOURCE / "plasma/desktoptheme/oled"),
+            (data / "plasma/look-and-feel" / LOOKANDFEEL,
+             SOURCE / "plasma/look-and-feel" / LOOKANDFEEL),
+            (data / "org.kde.syntax-highlighting/themes/OLED.theme",
+             SOURCE / "kate/OLED.theme"),
+        ]
+    if component in ("konsole", "all"):
+        targets += [
+            (data / "konsole/OLED.colorscheme", SOURCE / "konsole/OLED.colorscheme"),
+            (data / "konsole/OLED.profile", SOURCE / "konsole/OLED.profile"),
+        ]
+    if component in ("ghostty", "all"):
+        targets.append((config / "ghostty/themes/oled", SOURCE / "ghostty/oled"))
+    if component in ("editors", "all"):
+        targets += [
+            (config / "nvim/colors/oled.lua", SOURCE / "editors/oled.lua"),
+            (config / "helix/themes/oled.toml", SOURCE / "editors/oled.toml"),
+            (config / "btop/themes/oled.theme", SOURCE / "editors/oled.theme"),
+        ]
+    if component in ("firefox", "all"):
+        try:
+            profile = firefox_profile()
+        except RuntimeError:
+            if component == "firefox":
+                raise
+            profile = None  # "all" skips Firefox when no profile exists.
+        if profile is not None:
+            targets += [
+                (profile / "chrome/userChrome.css", SOURCE / "firefox/userChrome.css"),
+                (profile / "chrome/userContent.css", SOURCE / "firefox/userContent.css"),
+            ]
     return targets
 
 
@@ -122,19 +138,13 @@ def restore_files(records, recovery=None):
             copy(Path(record["backup"]), target)
 
 
-def restore_settings(changes):
-    warnings = []
-    for change in reversed(changes):
-        try:
-            command = settings_command(change["schema"])
-            current = run(command + ["get", change["schema"], change["key"]])
-            if current == change["after"]:
-                run(command + ["set", change["schema"], change["key"], change["before"]])
-            else:
-                print(f"Kept your newer setting: {change['schema']} {change['key']}")
-        except RuntimeError as error:
-            warnings.append(str(error))
-    return warnings
+APPLY_HINTS = {
+    "plasma": f"plasma-apply-lookandfeel -a {LOOKANDFEEL}   (keeps your desktop layout)",
+    "konsole": "in Konsole, select the OLED profile or set its color scheme to OLED",
+    "ghostty": "in Ghostty's config, set: theme = oled",
+    "editors": "Neovim: colorscheme oled · Helix: theme = \"oled\" · btop: options → color theme oled",
+    "firefox": "restart Firefox, then set the preferences listed under Firefox in README.md",
+}
 
 
 def install(args):
@@ -143,16 +153,16 @@ def install(args):
     if manifest.exists():
         raise RuntimeError("An installation is already recorded. Run uninstall before installing again or changing components.")
     targets = plan(args.component)
-    for target, source, _ in targets:
-        if source is not None and not source.is_dir():
-            raise RuntimeError(f"Missing bundled styles: {source}")
-        if target.name == "gtk.css" and target.is_dir() and not target.is_symlink():
+    has_firefox = any(target.name == "userChrome.css" for target, _ in targets)
+    for target, source in targets:
+        if not exists(source):
+            raise RuntimeError(f"Missing bundled file: {source}")
+        if source.is_file() and target.is_dir() and not target.is_symlink():
             raise RuntimeError(f"Expected a file, found a directory: {target}")
-    changes = activation_plan(args.component) if args.activate else []
-    for target, _, _ in targets:
+    if args.component == "all" and not has_firefox:
+        print("Skip firefox: no Firefox profile found.")
+    for target, _ in targets:
         print(f"{'Replace (back up first)' if exists(target) else 'Create'}: {target}")
-    for change in changes:
-        print(f"Set: {change['schema']} {change['key']} = {change['after']}")
     if args.dry_run:
         print("Dry run: nothing changed.")
         return
@@ -163,7 +173,7 @@ def install(args):
     backup = Path(tempfile.mkdtemp(prefix="install-", dir=backups))
     records = []
     try:
-        for index, (target, _, _) in enumerate(targets):
+        for index, (target, _) in enumerate(targets):
             saved = backup / str(index) if exists(target) else None
             if saved is not None:
                 copy(target, saved)
@@ -172,30 +182,25 @@ def install(args):
         shutil.rmtree(backup)
         raise
     state = {"component": args.component, "files": records,
-             "settings": changes, "status": "installing", "backup": str(backup)}
+             "status": "installing", "backup": str(backup)}
     write_json(manifest, state)
     try:
-        for target, source, contents in targets:
+        for target, source in targets:
             remove(target)  # Replace symlinks themselves, never write through them.
-            if source is not None:
-                copy(source, target)
-            else:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(contents, encoding="utf-8")
-        for change in changes:
-            run(settings_command(change["schema"]) + ["set", change["schema"], change["key"], change["after"]])
+            copy(source, target)
         state["status"] = "installed"
         write_json(manifest, state)
     except BaseException:
         restore_files(records)
-        warnings = restore_settings(changes)
-        if warnings:
-            print("Settings restore needs attention; install record retained:", *warnings, sep="\n", file=sys.stderr)
-        else:
-            manifest.unlink(missing_ok=True)
+        manifest.unlink(missing_ok=True)
         raise
     print(f"Installed {args.component}. Backups: {backup}")
-    print("Fully close and reopen GTK apps. For Shell, select OLED-GNOME in Tweaks if you did not use --activate.")
+    print("Apply it:")
+    for name in COMPONENTS:
+        if args.component in (name, "all") and not (name == "firefox" and not has_firefox):
+            print(f"  {name}: {APPLY_HINTS[name]}")
+    if args.component in ("plasma", "all"):
+        print("  Kate/KWrite editor colors: select OLED under Settings → Editor → Fonts & Colors.")
 
 
 def uninstall(args):
@@ -204,11 +209,13 @@ def uninstall(args):
     if not manifest.exists():
         raise RuntimeError("No recorded installation found for these HOME/XDG paths.")
     state = json.loads(manifest.read_text(encoding="utf-8"))
-    expected = [str(item[0]) for item in plan(state["component"])]
-    if [record["target"] for record in state["files"]] != expected:
-        raise RuntimeError("Install paths differ from this environment. Use the same HOME and XDG variables as at installation.")
-    for record in state["files"]:
-        if record["backup"] and not exists(Path(record["backup"])):
+    records = state.get("files")
+    if not isinstance(records, list) or not records:
+        raise RuntimeError("Install record is damaged: no files recorded.")
+    # The recorded paths are authoritative. The Firefox default profile
+    # may have changed since installation, so do not recompute them.
+    for record in records:
+        if record.get("backup") and not exists(Path(record["backup"])):
             raise RuntimeError(f"Missing backup; nothing restored: {record['backup']}")
         print(f"Restore previous contents (or remove newly created path): {record['target']}")
     if args.dry_run:
@@ -217,24 +224,25 @@ def uninstall(args):
     recovery_root = paths["state"] / "recovered"
     recovery_root.mkdir(exist_ok=True)
     recovery = Path(tempfile.mkdtemp(prefix=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-"), dir=recovery_root))
-    restore_files(state["files"], recovery)
-    warnings = restore_settings(state["settings"])
-    write_json(paths["state"] / "last-uninstall.json", {**state, "recovery": str(recovery), "warnings": warnings})
+    restore_files(records, recovery)
+    write_json(paths["state"] / "last-uninstall.json", {**state, "recovery": str(recovery)})
     manifest.unlink()
     print(f"Previous files restored. Your installed files and any edits were saved in: {recovery}")
-    for warning in warnings:
-        print(f"Settings warning: {warning}", file=sys.stderr)
-    print("Reopen GTK apps. If you selected the Shell theme manually, select your previous theme in Tweaks.")
+    component = state.get("component", "")
+    if component in ("plasma", "all"):
+        print("If OLED is still selected as your Global Theme or color scheme, "
+              "choose another one in System Settings now.")
+    if component in ("firefox", "all"):
+        print("Restart Firefox to drop the removed stylesheets.")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="OLED GNOME: per-user installation with backups; never use sudo.")
+    parser = argparse.ArgumentParser(description="OLED KDE: per-user installation with backups; never use sudo.")
     sub = parser.add_subparsers(dest="action", required=True)
     add = sub.add_parser("install", help="Back up current files, then install the requested components")
-    add.add_argument("--component", choices=("all", "gtk", "shell"), default="all")
-    add.add_argument("--activate", action="store_true", help="Also set dark GTK preferences and/or select the Shell theme; previous values are saved")
+    add.add_argument("--component", choices=("all",) + COMPONENTS, default="all")
     add.add_argument("--dry-run", action="store_true")
-    undo = sub.add_parser("uninstall", help="Restore files and settings recorded by install")
+    undo = sub.add_parser("uninstall", help="Restore files recorded by install")
     undo.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if hasattr(os, "geteuid") and os.geteuid() == 0:

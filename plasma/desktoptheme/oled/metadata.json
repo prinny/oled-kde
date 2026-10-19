@@ -1,0 +1,18 @@
+{
+    "KPackageStructure": "Plasma/Theme",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "OLED KDE contributors"
+            }
+        ],
+        "Category": "",
+        "Description": "Pure-black OLED Plasma style, ported from oled-gnome; color-only, stock Breeze elements",
+        "EnabledByDefault": true,
+        "Id": "oled",
+        "License": "MIT",
+        "Name": "OLED",
+        "Version": "1.0.0"
+    },
+    "X-Plasma-API": "5.0"
+}

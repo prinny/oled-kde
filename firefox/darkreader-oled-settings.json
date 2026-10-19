@@ -1,0 +1,17 @@
+{
+  "detectDarkTheme": false,
+  "disabledFor": [],
+  "enableForPDF": true,
+  "enabled": true,
+  "enabledByDefault": true,
+  "enabledFor": [],
+  "schemeVersion": 2,
+  "theme": {
+    "darkSchemeBackgroundColor": "#000000",
+    "darkSchemeTextColor": "#ffffff",
+    "engine": "dynamic",
+    "mode": 1,
+    "scrollbarColor": "#242424",
+    "selectionColor": "#242424"
+  }
+}
